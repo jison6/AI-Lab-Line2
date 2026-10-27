@@ -10,22 +10,34 @@ jobs:
   remind:
     runs-on: ubuntu-latest
     steps:
-      - name: Send reminder to Feishu
+      - name: Send reminder to Feishu or WeCom
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         run: |
-          if [ -z "$FEISHU_WEBHOOK_URL" ]; then
-            echo "FEISHU_WEBHOOK_URL is not configured; skip."
-            exit 0
-          fi
           python - <<'PY'
           import json, os, urllib.request
           from datetime import datetime, timezone
+
           hour = datetime.now(timezone.utc).hour
           label = "AI-Lab 09:00 开工提醒" if hour < 8 else "AI-Lab 21:30 收口提醒"
           text = label + "：按 6 天计划推进，先完成当天第一步，并更新 README、语义化 Commit。"
-          payload = json.dumps({"msg_type":"text","content":{"text":text}}, ensure_ascii=False).encode("utf-8")
-          req = urllib.request.Request(os.environ["FEISHU_WEBHOOK_URL"], data=payload, headers={"Content-Type":"application/json"})
-          with urllib.request.urlopen(req, timeout=20) as resp:
-              print(resp.status)
+
+          def send(url, payload):
+              req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                                           headers={"Content-Type": "application/json"})
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  print(url.split("?")[0], resp.status)
+
+          sent = False
+          feishu = os.environ.get("FEISHU_WEBHOOK_URL")
+          if feishu:
+              send(feishu, {"msg_type": "text", "content": {"text": text}})
+              sent = True
+          wecom = os.environ.get("WECOM_WEBHOOK_URL")
+          if wecom:
+              send(wecom, {"msgtype": "text", "text": {"content": text}})
+              sent = True
+          if not sent:
+              print("No webhook secret configured; skip.")
           PY
